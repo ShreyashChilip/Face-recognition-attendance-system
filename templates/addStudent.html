@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+{% block title %}
+  Add New Student
+{% endblock title %}
+{% block addstudent %}
+  active
+{% endblock addstudent %}
+{% block body %}
+      <form method="POST">
+        <div class="container my-3">
+            <h4>Add a new Student</h4>
+            <form action="/upload_images" method="POST">
+                <div class="form-group">
+                <div class="input-group mb-3">
+                  <select class="custom-select" id="inputGroupSelect02">
+                    <option selected>Select Department</option>
+                    <option value="1">Information Technology IF</option>
+                    <option value="2">Computer Engineering CO</option>
+                    <option value="3">Mechanical Engineering ME</option>
+                    <option value="3">Artificial Intelligence and Data Science AIDS</option>
+                    <option value="3">Civil Engineering CE</option>
+                  </select>
+                    <select class="custom-select" id="inputGroupSelect02">
+                      <option selected>Select Year</option>
+                      <option value="1">FY</option>
+                      <option value="2">SY</option>
+                      <option value="3">TY</option>
+                    </select>
+                    <div class="input-group-append">
+                      <label class="input-group-text" for="inputGroupSelect02">Options</label>
+                    </div>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="exampleInputEmail1">Name of the Student</label>
+                  <input type="text" class="form-control" id="student-name" aria-describedby="emailHelp">
+                </div>
+                <div class="form-group">
+                  <label for="exampleInputPassword1">Roll No.</label>
+                  <input type="text" class="form-control" id="exampleInputPassword1">
+                </div>
+                <video id="video" autoplay style="width: 90%;aspect-ratio:2;"></video>
+                <!-- <img src="{{ url_for('video_get') }}" style="width: 90%;aspect-ratio:2;" id="vid_stream"> -->
+                <br />
+                <div class="btn-group-vertical" role="group" aria-label="Vertical radio toggle button group">
+                  <input type="radio" class="btn-check" name="vbtn-radio" id="vbtn-radio1" style="display: none;" autocomplete="off" onchange="check(this.id)">
+                  <label class="btn btn-outline-danger" for="vbtn-radio1">Start Camera</label>
+                  <input type="radio" class="btn-check" name="vbtn-radio" id="vbtn-radio2" style="display: none;" autocomplete="off" checked onchange="check(this.id)">
+                  <label class="btn btn-outline-danger" for="vbtn-radio2" >Stop Camera</label>
+                  <input type="button" class="btn btn-info" onclick="switchCamera()" value="Switch Camera">
+                </div>
+                <input type="button" class="btn btn-info" onclick="capture()" value="Capture">
+                <input type="button" class="btn btn-info" onclick="" value="Reset">
+                <button type="submit" class="btn btn-primary" style="margin: 20px;">Submit</button>
+              </form>
+      </form>
+<script>
+ let videoStream;
+let currentCamera = 'environment'; // 'environment' for rear, 'user' for front
+
+function check(r) {
+  if (r === "vbtn-radio1") {
+    startCamera();
+  }
+  if (r === "vbtn-radio2") {
+    stopCamera();
+  }
+}
+async function switchCamera() {
+  if (document.getElementById('video').srcObject!=null) {
+    stopCamera();
+    currentCamera = currentCamera === 'environment' ? 'user' : 'environment';
+    startCamera();
+  }
+}
+async function startCamera() {
+  try {
+    videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentCamera } });
+    document.getElementById('video').srcObject = videoStream;
+  } catch (error) {
+    console.error('Error accessing camera:', error);
+  }
+}
+function stopCamera() {
+  if (videoStream) {
+    videoStream.getTracks().forEach(track => track.stop());
+    document.getElementById('video').srcObject = null;
+  }
+}
+function capture() {
+ // Remove the FormData object and directly pass the image to the server
+ fetch('/process_video_frames', { method: 'POST', body: videoStream })
+    .then(response => response.text())
+    .then(data => {
+      console.log('Image processing completed:', data);
+      // Handle the response or update the UI
+    })
+    .catch(error => {
+      console.error('Error capturing image:', error);
+    });
+}
+
+</script>
+    <!-- Optional JavaScript -->
+    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+    <script src="https://code.jquery.com/jquery-3.4.1.slim.min.js" integrity="sha384-J6qa4849blE2+poT4WnyKhv5vZF5SrPo0iEjwBvKU7imGFAV0wwj1yYfoRSJoZ+n" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js" integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/js/bootstrap.min.js" integrity="sha384-wfSDF2E50Y2D1uUdj0O3uMBJnjuUD4Ih7YwaYd1iqfktj0Uod8GCExl3Og8ifwB6" crossorigin="anonymous"></script>
+    {% endblock body %}
