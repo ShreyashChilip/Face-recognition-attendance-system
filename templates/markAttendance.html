@@ -8,35 +8,29 @@ active
 {% block body %}
 <form method="POST">
   <div class="container my-3">
-    <h4>Add a new Student</h4>
+    <h4>Mark Attendance</h4>
     <div class="form-group">
+      <select class="custom-select" id="selectBatch">
+        <option selected>Select Batch</option>
+        <option value="1">Lecture</option>
+        <option value="2">IF1</option>
+        <option value="3">IF2</option>
+        <option value="4">IF3</option>
+      </select>
+      <div class="form-group">
+        <select class="custom-select" id="selectDay" onchange="dayChange()">
+          <option selected>Select Day</option>
+          <option value="1">Monday</option>
+          <option value="2">Tuesday</option>
+          <option value="3">Wednesday</option>
+          <option value="4">Thursday</option>
+          <option value="5">Friday</option>
+        </select>
       <div class="input-group mb-3">
-        <select class="custom-select" id="inputGroupSelect02">
-          <option selected>Select Department</option>
-          <option value="1">Information Technology IF</option>
-          <option value="2">Computer Engineering CO</option>
-          <option value="3">Mechanical Engineering ME</option>
-          <option value="3">Artificial Intelligence and Data Science AIDS</option>
-          <option value="3">Civil Engineering CE</option>
+        <select class="custom-select" id="selectLectures">
+          <!-- Fetching data dynamically from database -->
         </select>
-        <select class="custom-select" id="inputGroupSelect02">
-          <option selected>Select Year</option>
-          <option value="1">FY</option>
-          <option value="2">SY</option>
-          <option value="3">TY</option>
-        </select>
-        <div class="input-group-append">
-          <label class="input-group-text" for="inputGroupSelect02">Options</label>
-        </div>
       </div>
-    </div>
-    <div class="form-group">
-      <label for="exampleInputEmail1">Name of the Student</label>
-      <input type="text" class="form-control" id="exampleInputEmail1" aria-describedby="emailHelp">
-    </div>
-    <div class="form-group">
-      <label for="exampleInputPassword1">Roll No.</label>
-      <input type="text" class="form-control" id="exampleInputPassword1">
     </div>
     <video id="video" autoplay class="w-100"></video>
     <!-- <img src="{{ url_for('video_recog') }}" style="width: 90%;aspect-ratio:2;" id="vid_stream"> -->
@@ -53,6 +47,29 @@ active
     <input type="button" class="btn btn-info" onclick="" value="Capture">
     <input type="button" class="btn btn-info" onclick="" value="Reset">
     <button type="submit" class="btn btn-primary" style="margin: 20px;">Submit</button>
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">#</th>
+          <th scope="col">Roll No.</th>
+          <th scope="col">Student Name</th>
+          <th scope="col">Enrollment No.</th>
+          <th scope="col">P/A</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for student in students %}
+          <tr>
+            <th scope="row">{{ loop.index }}</th>
+            <td>{{ student.roll_no }}</td>
+            <td>{{ student.name }}</td>
+            <td>{{ student.enrollment_no }}</td>
+            <!-- Add more columns if needed -->
+            <td><input type="checkbox" name="student_checkbox" id ="{{ student.id }}" value="{{ student.id }}"></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
 </form>
 <script>
   let videoStream;
@@ -82,14 +99,9 @@ active
       console.error('Error accessing camera:', error);
     }
   }
-
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d');
-
-
-
-
-  // Capture frames
+// Capture frames
   function captureFrame() {
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     canvas.toBlob(sendDataToFlask, 'image/png'); // Convert to Blob
@@ -102,6 +114,10 @@ active
     xhr.onload = function () {
       if (xhr.status === 200) {
         console.log('Data sent successfully');
+        var response = JSON.parse(xhr.responseText);
+        // Access the recognized students data
+        var recognizedStudents = response.recognized_students;
+        updateCheckboxes(recognizedStudents);
       } else {
         console.error('Error sending data to Flask:', xhr.statusText);
       }
@@ -111,20 +127,76 @@ active
     };
     xhr.send(blobData);
   }
-
   function stopCamera() {
     if (videoStream) {
       videoStream.getTracks().forEach(track => track.stop());
       document.getElementById('video').srcObject = null;
     }
   }
+
+function updateCheckboxes(recognizedStudents)
+{
+  recognizedStudents.forEach(function(student) {
+        // Get the checkbox element with the corresponding ID
+        checkbox = document.getElementById(student.id);
+        checkbox.checked = true;
+    });
+}
+function dayChange() {
+    // Fetch lectures based on the selected date
+    let selectDay=document.getElementById('selectDay');
+    let day = selectDay.options[selectDay.selectedIndex].text;
+    let selectBatch = document.getElementById('selectBatch');
+    let batch = selectBatch.options[selectBatch.selectedIndex].text;
+        // Send the selected day to the server
+        $.ajax({
+        url: '/load_lectures',
+        type: 'POST',
+        data: { selectedDay: day ,
+        selectedBatch : batch},
+        success: function(options) {
+            // Update the select element with the new options
+            updateSelectOptions(options);
+        },
+        error: function(error) {
+            console.error('Error:', error);
+        }
+  });
+}
+
+function updateSelectOptions(options) {
+    // Assuming 'options' is a list of dictionaries with 'value' and 'text' properties
+    let selectElement = $('#selectLectures');
+
+    // Clear existing options
+    selectElement.empty();
+
+    // Add new options
+    options.forEach(function(option) {
+        selectElement.append($('<option>', {
+            value: option.value,
+            text: option.text
+        }));
+    });
+}
+
+// Function to fetch lectures and update dropdown
+function fetchLectures(selectedDate) {
+    // Make an AJAX request to the server to fetch lectures
+    // Update the dropdown with the fetched data
+}
+
 </script>
-<!-- Optional JavaScript -->
-<!-- jQuery first, then Popper.js, then Bootstrap JS -->
-<script src="https://code.jquery.com/jquery-3.4.1.slim.min.js"
-  integrity="sha384-J6qa4849blE2+poT4WnyKhv5vZF5SrPo0iEjwBvKU7imGFAV0wwj1yYfoRSJoZ+n" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js"
-  integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/js/bootstrap.min.js"
-  integrity="sha384-wfSDF2E50Y2D1uUdj0O3uMBJnjuUD4Ih7YwaYd1iqfktj0Uod8GCExl3Og8ifwB6" crossorigin="anonymous"></script>
+<!-- jQuery first -->
+<script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
+
+<!-- jQuery UI second -->
+<script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+<link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+
+<!-- Other scripts -->
+<script src="https://code.jquery.com/jquery-3.4.1.slim.min.js" integrity="sha384-J6qa4849blE2+poT4WnyKhv5vZF5SrPo0iEjwBvKU7imGFAV0wwj1yYfoRSJoZ+n" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js" integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/js/bootstrap.min.js" integrity="sha384-wfSDF2E50Y2D1uUdj0O3uMBJnjuUD4Ih7YwaYd1iqfktj0Uod8GCExl3Og8ifwB6" crossorigin="anonymous"></script>
+
 {% endblock body %}

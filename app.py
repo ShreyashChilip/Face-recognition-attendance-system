@@ -1,5 +1,5 @@
 from flask import Flask, render_template, redirect, url_for, session, request, flash, get_flashed_messages
-from flask import Response
+from flask import Response,jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_wtf import FlaskForm
@@ -35,6 +35,43 @@ class Authenticate(db.Model, UserMixin):
         return f"{self.sno} - {self.username} - {self.password}"
     def get_id(self):
         return str(self.sno)
+
+class Student(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    roll_no = db.Column(db.String(20), unique=True, nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    enrollment_no = db.Column(db.String(20), unique=True, nullable=False)
+    def __repr__(self):
+        return f"{self.roll_number} - {self.name}"
+
+class AttendanceRecord(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    roll_no = db.Column(db.String(20), unique=True, nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    enrollment_no = db.Column(db.String(20), unique=True, nullable=False)
+    subject_name = db.Column(db.String(200),nullable=False)
+    batch = db.Column(db.String(20))
+    slot_type = db.Column(db.String(200),nullable=False)
+    date = db.Column(db.Date,nullable=False)
+    present = db.Column(db.String(1),default='n') # n means absent
+    
+    def __repr__(self):
+        return f"{self.roll_number} - {self.name}"
+
+class TimeTable(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    batch = db.Column(db.String(20), nullable=False)
+    day = db.Column(db.String(20), nullable=False)
+    slot1 = db.Column(db.String(200))
+    slot2 = db.Column(db.String(200))
+    slot3 = db.Column(db.String(200))
+    slot4 = db.Column(db.String(200))
+    slot5 = db.Column(db.String(200))
+    slot6 = db.Column(db.String(200))
+    slot7 = db.Column(db.String(200))
+    slot8 = db.Column(db.String(200))
+    def __repr__(self):
+        return f"{self.day}"
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -75,8 +112,13 @@ def to_addStudent():
 
 @app.route('/markattendance')
 def to_markAttendance():
-    return render_template('markAttendance.html')
-
+    try:
+        # Query all students from the Student model
+        students = Student.query.all()
+    except Exception as e:
+        print(f"Error fetching student data: {e}")
+        return []
+    return render_template('markAttendance.html',students=students)
 
 def recognize():
     size = 4
@@ -171,7 +213,6 @@ def generate_frames():
     webcam.release()
     cv2.destroyAllWindows()
 
-
 @app.route('/process_video_frames', methods=['POST'])
 def process_video_frames():
     try:
@@ -201,13 +242,13 @@ def process_video_frames():
 
 def process_image(image):
     # Resize the image to a smaller size (150x150) for faster face detection
-    image = image.resize((1366, 1024))
+    image = image.resize((1280, 1024))
     # Convert the image to RGB format
     image = image.convert("RGB")
     image.save('image1024.jpeg')
     return image
 
-def recognize_face(image):
+def recognize_face(image,confidence_threshold=0.6):
     known_face_encodings = joblib.load('known_face_encodings.joblib')
     try:
         known_face_names = joblib.load('known_face_names.joblib')
@@ -224,23 +265,67 @@ def recognize_face(image):
 
     if not face_encodings:
         print("No faces found in the image.")
+        return recognized_students
         return
-
+    recognized_students = []
     for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
         # Compare the face with known faces
-        matches = face_recognition.compare_faces(known_face_encodings, face_encoding)
+        face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+        
+        # Find the index with the smallest distance (most likely match)
+        best_match_index = np.argmin(face_distances)
+        min_distance = face_distances[best_match_index]
 
-        name = "Unknown"
+        roll_no = "Unknown"
 
-        # Use the first match found
-        if True in matches:
-            first_match_index = matches.index(True)
-            name = known_face_names[first_match_index]
-            print("Found : " + name)
+        # Check if the smallest distance is below the confidence threshold
+        if min_distance <=confidence_threshold:
+            roll_no = known_face_names[best_match_index]
+            student = Student.query.filter_by(roll_no=roll_no).first()
+
+            if student:
+                print(f"Name: {student.name}, Enrollment No: {student.enrollment_no}, Confidence: {1 - min_distance}")
+                temp_student = {'id': student.id}
+                recognized_students.append(temp_student)
+            else:
+                print("Student not found in the database.")
+            print("Found: " + roll_no)
         else:
-            print(name)
+            print(f"Face not confidently recognized (Distance: {min_distance}), Confidence Threshold: {confidence_threshold}")
+            print(roll_no)
+    return recognized_students
 
+@app.route('/load_lectures', methods=['POST'])
+def load_lectures():
+    selectedDay = request.form.get('selectedDay')
+    selectedBatch = request.form.get('selectedBatch')
+    current_batch = '1'
+    if selectedBatch == 'IF1':
+        current_batch = '1'
+    elif selectedBatch == 'IF2':
+        current_batch = '2'
+    elif selectedBatch == 'IF3':
+        current_batch = '3'
+    lectures = TimeTable.query.filter_by(day=selectedDay, batch=current_batch).all()
+    lectures_filtered = []  # Initialize an empty list
+
+    for lecture in lectures:
+        filtered_lecture = {}
+        for key in ['batch', 'day', 'slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6', 'slot7', 'slot8']:
+            if getattr(lecture, key) != '-':
+                filtered_lecture[key] = getattr(lecture, key)
+        lectures_filtered.append(filtered_lecture)
+    final_lecture_dict=[]
+    for lecture in lectures_filtered:
+        for key in lecture:
+            lecture_dict = {
+                'value':key,
+                'text':lecture[key],
+            }
+            final_lecture_dict.append(lecture_dict)
+
+    # Return the result as a JSON response
+    return jsonify(final_lecture_dict)
 
 if __name__ == "__main__":
-    app.run(debug=False, port=int(os.environ.get('PORT', 5000)))
-
+    app.run(debug=True)
