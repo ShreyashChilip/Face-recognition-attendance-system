@@ -16,8 +16,7 @@ with app.app_context():
             user2 = Authenticate(username='test', password=hashed_password2)
 
             db.session.add(user1)
-            db.session.add(user2)
-
+            db.session.add(user2)   
             # commit the changes without autoflush
             db.session.commit()
 
@@ -52,7 +51,9 @@ with app.app_context():
                 )
                 db.session.add(tb)
 
-            # commit the changes without autoflush
+            
+            test_sample =  Student(roll_no = "R1",name = "Jagdish Sonigra", enrollment_no = "E1")
+            db.session.add(test_sample)
             db.session.commit()
 
     except Exception as e:

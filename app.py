@@ -1,17 +1,18 @@
 from flask import Flask, render_template, redirect, url_for, session, request, flash, get_flashed_messages
 from flask import Response,jsonify
+from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SubmitField
 from wtforms.validators import InputRequired
 from flask_bcrypt import Bcrypt
-import cv2, sys, numpy as np, os, base64, joblib, face_recognition
+import cv2, sys, numpy as np, json, os, base64, joblib, face_recognition
 from io import BytesIO
 from PIL import Image,UnidentifiedImageError
 haar_file = 'haarcascade_frontalface_default.xml'
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-
+import pandas as pd
 app = Flask(__name__)
 @app.after_request
 def add_header(response):
@@ -44,19 +45,27 @@ class Student(db.Model):
     def __repr__(self):
         return f"{self.roll_number} - {self.name}"
 
+# class AttendanceRecord(db.Model):
+#     id = db.Column(db.Integer, primary_key=True)
+#     roll_no = db.Column(db.String(20), unique=True, nullable=False)
+#     name = db.Column(db.String(200), nullable=False)
+#     enrollment_no = db.Column(db.String(20), unique=True, nullable=False)
+#     subject_name = db.Column(db.String(200),nullable=False)
+#     batch = db.Column(db.String(20))
+#     slot_type = db.Column(db.String(200),nullable=False)
+#     date = db.Column(db.Date,nullable=False)
+#     present = db.Column(db.String(1),default='n') # n means absent
+
+#     def __repr__(self):
+#         return f"{self.roll_number} - {self.name}"
+
 class AttendanceRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    roll_no = db.Column(db.String(20), unique=True, nullable=False)
-    name = db.Column(db.String(200), nullable=False)
-    enrollment_no = db.Column(db.String(20), unique=True, nullable=False)
-    subject_name = db.Column(db.String(200),nullable=False)
-    batch = db.Column(db.String(20))
-    slot_type = db.Column(db.String(200),nullable=False)
     date = db.Column(db.Date,nullable=False)
+    roll_no = db.Column(db.String(20),nullable=False)
+    name = db.Column(db.String(200),nullable=False)
+    enrollment_no = db.Column(db.String(20), unique=True, nullable=False)
     present = db.Column(db.String(1),default='n') # n means absent
-    
-    def __repr__(self):
-        return f"{self.roll_number} - {self.name}"
 
 class TimeTable(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -113,6 +122,15 @@ def to_addStudent():
 @app.route('/markattendance')
 def to_markAttendance():
     try:
+        records_to_delete = AttendanceRecord.query.all()
+
+        # Delete each record
+        for record in records_to_delete:
+            db.session.delete(record)
+
+        # Commit the changes to the database
+        db.session.commit()
+
         # Query all students from the Student model
         students = Student.query.all()
     except Exception as e:
@@ -220,7 +238,6 @@ def process_video_frames():
 
         # Convert bytes to numpy array
         nparr = np.frombuffer(image_data_bytes, np.uint8)
-
         # Decode numpy array into an image
         image_cv2 = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
@@ -255,8 +272,6 @@ def recognize_face(image,confidence_threshold=0.6):
     except (Exception) as e:
         print(f"Exception!: {e}")
         known_face_names=[]
-
-    image = process_image(image)
     image_np = np.array(image)
 
     # Find faces in the frame
@@ -265,9 +280,9 @@ def recognize_face(image,confidence_threshold=0.6):
 
     if not face_encodings:
         print("No faces found in the image.")
-        return recognized_students
+        # return recognized_students
         return
-    recognized_students = []
+    # recognized_students = []
     for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
         # Compare the face with known faces
         face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
@@ -277,23 +292,31 @@ def recognize_face(image,confidence_threshold=0.6):
         min_distance = face_distances[best_match_index]
 
         roll_no = "Unknown"
-
-        # Check if the smallest distance is below the confidence threshold
+  
+          # Check if the smallest distance is below the confidence threshold
         if min_distance <=confidence_threshold:
             roll_no = known_face_names[best_match_index]
             student = Student.query.filter_by(roll_no=roll_no).first()
 
             if student:
                 print(f"Name: {student.name}, Enrollment No: {student.enrollment_no}, Confidence: {1 - min_distance}")
-                temp_student = {'id': student.id}
-                recognized_students.append(temp_student)
-            else:
+                existing_record = AttendanceRecord.query.filter_by(date=datetime.now().date(), roll_no=roll_no).first()
+
+                if not existing_record:
+                    # If record doesn't exist, add a new record
+                    new_attendance_record = AttendanceRecord(date=datetime.now().date(), roll_no=roll_no, name=student.name,enrollment_no=student.enrollment_no, present='y')
+                    db.session.add(new_attendance_record)
+                    db.session.commit()
+                    print("New attendance record added.")
+                else:
+                    print("Attendance record already exists.")
+            else: 
                 print("Student not found in the database.")
             print("Found: " + roll_no)
         else:
             print(f"Face not confidently recognized (Distance: {min_distance}), Confidence Threshold: {confidence_threshold}")
             print(roll_no)
-    return recognized_students
+    # return recognized_students
 
 @app.route('/load_lectures', methods=['POST'])
 def load_lectures():
@@ -326,6 +349,18 @@ def load_lectures():
 
     # Return the result as a JSON response
     return jsonify(final_lecture_dict)
+
+@app.route("/showAttendance", methods = ['POST'])
+@login_required
+def showAttendance():
+    try:    
+        
+        attendanceRecord = AttendanceRecord.query.all()
+        # result = AttendanceRecord.query.with_entities(AttendanceRecord.date, AttendanceRecord.subject, AttendanceRecord.batch).first()
+    except Exception as e:
+        print(f"Error fetching attendance data: {e}")
+        return []
+    return render_template('showAttendance.html',attendance=attendanceRecord)
 
 if __name__ == "__main__":
     app.run(debug=True)

@@ -19,7 +19,7 @@ def train_face_recognition_model(data_path):
                 continue
 
             # Take the first face encoding (assuming only one face is present)
-            face_encoding = face_recognition.face_encodings(image, [face_locations[0]])[0]
+            face_encoding = face_recognition.face_encodings(image, [face_locations[0]], num_jitters=100)[0]
 
             known_face_encodings.append(face_encoding)
             known_face_names.append(person)

@@ -6,7 +6,7 @@ Mark Attendance
 active
 {% endblock markattendance %}
 {% block body %}
-<form method="POST">
+<form method="POST" action="/showAttendance">
   <div class="container my-3">
     <h4>Mark Attendance</h4>
     <div class="form-group">
@@ -28,7 +28,12 @@ active
         </select>
       <div class="input-group mb-3">
         <select class="custom-select" id="selectLectures">
-          <!-- Fetching data dynamically from database -->
+          <option selected>Select Lecture</option>
+          <option value="1">MAD</option>
+          <option value="2">WMN</option>
+          <option value="3">ETI</option>
+          <option value="4">NIS</option>
+          <option value="5">MGT</option>
         </select>
       </div>
     </div>
@@ -46,7 +51,7 @@ active
     </div>
     <input type="button" class="btn btn-info" onclick="" value="Capture">
     <input type="button" class="btn btn-info" onclick="" value="Reset">
-    <button type="submit" class="btn btn-primary" style="margin: 20px;">Submit</button>
+    <input type="submit" class="btn btn-primary" style="margin: 20px;" value="Show Attendance">
     <table class="table">
       <thead>
         <tr>
@@ -57,7 +62,7 @@ active
           <th scope="col">P/A</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="studentsRecord">
         {% for student in students %}
           <tr>
             <th scope="row">{{ loop.index }}</th>
@@ -74,7 +79,6 @@ active
 <script>
   let videoStream;
   let currentCamera = 'environment'; // 'environment' for rear, 'user' for front
-
   function check(r) {
     if (r === "vbtn-radio1") {
       startCamera();
@@ -114,10 +118,10 @@ active
     xhr.onload = function () {
       if (xhr.status === 200) {
         console.log('Data sent successfully');
-        var response = JSON.parse(xhr.responseText);
-        // Access the recognized students data
-        var recognizedStudents = response.recognized_students;
-        updateCheckboxes(recognizedStudents);
+        // var response = JSON.parse(xhr.responseText);
+        // // Access the recognized students data
+        // var recognizedStudents = response.recognized_students;
+        // updateCheckboxes(recognizedStudents);
       } else {
         console.error('Error sending data to Flask:', xhr.statusText);
       }
@@ -131,6 +135,9 @@ active
     if (videoStream) {
       videoStream.getTracks().forEach(track => track.stop());
       document.getElementById('video').srcObject = null;
+      
+            
+        
     }
   }
 
@@ -185,6 +192,28 @@ function fetchLectures(selectedDate) {
     // Make an AJAX request to the server to fetch lectures
     // Update the dropdown with the fetched data
 }
+
+function showAttendanceXHR() {
+    var xhratt = new XMLHttpRequest();
+    xhratt.open('GET', '/show_attendance', true);
+
+    xhratt.onload = function () {
+      if (xhratt.status === 200) {
+        // Handle successful response, if needed
+        console.log('Attendance data received successfully');
+      } else {
+        // Handle error response, if needed
+        console.error('Error fetching attendance data:', xhratt.statusText);
+      }
+    };
+
+    xhratt.onerror = function () {
+      // Handle network errors, if needed
+      console.error('Network error while fetching attendance data');
+    };
+
+    xhratt.send();
+  }
 
 </script>
 <!-- jQuery first -->
