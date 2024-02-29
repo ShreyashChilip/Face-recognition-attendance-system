@@ -1,4 +1,4 @@
-from app import app, db, Authenticate, Student, bcrypt, AttendanceRecord, TimeTable
+from app import app, db, Authenticate, Student, bcrypt, AttendanceRecord, TimeTable, markedAttendance
 import pandas as pd
 # Create an application context
 with app.app_context():
@@ -22,7 +22,7 @@ with app.app_context():
 
             # Insert student data
             
-            df = pd.read_excel('student_data.xlsx')
+            df = pd.read_excel('g20_data.xlsx')
 
     # Iterate through rows and add data to the 'students' table
             for index, row in df.iterrows():
@@ -51,9 +51,6 @@ with app.app_context():
                 )
                 db.session.add(tb)
 
-            
-            test_sample =  Student(roll_no = "R1",name = "Jagdish Sonigra", enrollment_no = "E1")
-            db.session.add(test_sample)
             db.session.commit()
 
     except Exception as e:

@@ -23,6 +23,8 @@ def train_face_recognition_model(data_path):
 
             known_face_encodings.append(face_encoding)
             known_face_names.append(person)
+            print(f"Image done {img_path}")
+        print(f"Completed training for {person_path}")
 
     # Save the trained model
     joblib.dump(known_face_encodings, 'known_face_encodings.joblib')

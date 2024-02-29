@@ -10,6 +10,8 @@ from flask_bcrypt import Bcrypt
 import cv2, sys, numpy as np, json, os, base64, joblib, face_recognition
 from io import BytesIO
 from PIL import Image,UnidentifiedImageError
+from flask_socketio import SocketIO
+
 haar_file = 'haarcascade_frontalface_default.xml'
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 import pandas as pd
@@ -18,6 +20,8 @@ app = Flask(__name__)
 def add_header(response):
     response.cache_control.no_store = True
     return response
+
+socketio = SocketIO(app)
 
 # Use SQLite database file named 'users.db' located in the project directory
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
@@ -62,9 +66,11 @@ class Student(db.Model):
 class AttendanceRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.Date,nullable=False)
+    batch = db.Column(db.String(20),nullable=False)
+    slot = db.Column(db.String(200),nullable=False)
     roll_no = db.Column(db.String(20),nullable=False)
     name = db.Column(db.String(200),nullable=False)
-    enrollment_no = db.Column(db.String(20), unique=True, nullable=False)
+    enrollment_no = db.Column(db.String(20),nullable=False)
     present = db.Column(db.String(1),default='n') # n means absent
 
 class TimeTable(db.Model):
@@ -81,6 +87,12 @@ class TimeTable(db.Model):
     slot8 = db.Column(db.String(200))
     def __repr__(self):
         return f"{self.day}"
+
+class markedAttendance(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date,nullable=False)
+    batch = db.Column(db.String(20),nullable=False)
+    slot = db.Column(db.String(200),nullable=False)
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -318,49 +330,191 @@ def recognize_face(image,confidence_threshold=0.6):
             print(roll_no)
     # return recognized_students
 
-@app.route('/load_lectures', methods=['POST'])
-def load_lectures():
-    selectedDay = request.form.get('selectedDay')
-    selectedBatch = request.form.get('selectedBatch')
-    current_batch = '1'
-    if selectedBatch == 'IF1':
-        current_batch = '1'
-    elif selectedBatch == 'IF2':
-        current_batch = '2'
-    elif selectedBatch == 'IF3':
-        current_batch = '3'
-    lectures = TimeTable.query.filter_by(day=selectedDay, batch=current_batch).all()
-    lectures_filtered = []  # Initialize an empty list
-
-    for lecture in lectures:
-        filtered_lecture = {}
-        for key in ['batch', 'day', 'slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6', 'slot7', 'slot8']:
-            if getattr(lecture, key) != '-':
-                filtered_lecture[key] = getattr(lecture, key)
-        lectures_filtered.append(filtered_lecture)
-    final_lecture_dict=[]
-    for lecture in lectures_filtered:
-        for key in lecture:
-            lecture_dict = {
-                'value':key,
-                'text':lecture[key],
-            }
-            final_lecture_dict.append(lecture_dict)
-
-    # Return the result as a JSON response
-    return jsonify(final_lecture_dict)
+@socketio.on('load_lectures')
+def handle_load_lectures(data):
+    print("Here")
+    selected_day = data['selectedDay']
+    selected_batch = data['selectedBatch']
+    print(selected_batch)
+    if(selected_batch=="Lecture"):
+        slots_data = TimeTable.query.filter_by(batch='1', day=selected_day).first()
+        # Check if slots_data is not None to avoid errors
+        if slots_data:
+            print("Here i Am")
+            # Iterate through each attribute of the record
+            for attr, value in vars(slots_data).items():
+                # Check if the attribute is 'slot' and the value contains '[PR]'
+                if '[PR]' in value:
+                    # If it contains '[PR]', replace the value with an empty string
+                    setattr(slots_data, attr, value.replace(value, '-'))
+    else:    
+        # Use SQLAlchemy to query the database
+        slots_data = TimeTable.query.filter_by(batch=selected_batch, day=selected_day).first()
+    # Convert the result to a dictionary for sending over Socket.IO
+    slots_data_dict = {
+        'slot1': slots_data.slot1,
+        'slot2': slots_data.slot2,
+        'slot3': slots_data.slot3,
+        'slot4': slots_data.slot4,
+        'slot5': slots_data.slot5
+    }
+    # Emit the response back to the client
+    slots_data_list = list(slots_data_dict.values())
+    for item in slots_data_list:
+        print(item)
+    socketio.emit('lectures_loaded', slots_data_list)
 
 @app.route("/showAttendance", methods = ['POST'])
 @login_required
 def showAttendance():
-    try:    
-        
-        attendanceRecord = AttendanceRecord.query.all()
+    try:   
+        selected_day_str = request.form['selectedDay']
+        selected_day = datetime.strptime(selected_day_str, "%a %b %d %Y %H:%M:%S GMT%z (%Z)")  
+        selected_batch = request.form['selectedBatch']
+        selected_slot = request.form['selectedSlot']
+        print(selected_day.date(),selected_batch,selected_slot)
+        attendanceRecord = AttendanceRecord.query.filter_by(date=selected_day.date(), batch=selected_batch, slot=selected_slot).all()
+        attendance_data = []
+        for record in attendanceRecord:
+            attendance_data.append({
+                'roll_no': record.roll_no,
+                'name': record.name,
+                'enrollment_no': record.enrollment_no,
+                'present': record.present
+                # Add more fields as needed
+            })
+            print(attendance_data)
         # result = AttendanceRecord.query.with_entities(AttendanceRecord.date, AttendanceRecord.subject, AttendanceRecord.batch).first()
     except Exception as e:
-        print(f"Error fetching attendance data: {e}")
+        return jsonify({'error': 'An error occurred while fetching attendance data'})
         return []
-    return render_template('showAttendance.html',attendance=attendanceRecord)
+    return jsonify({'attendance': attendance_data})
+
+@app.route("/uploadImages",methods = ['GET','POST'])
+def toUploadImages():
+    return render_template('uploadImages.html')
+
+@app.route("/processImages",methods = ['POST'])
+@login_required
+def processImages():
+    selected_day_str = request.form['selectedDay']
+    selected_day = datetime.strptime(selected_day_str, "%a %b %d %Y %H:%M:%S GMT%z (%Z)")  
+    selected_batch = request.form['selectedBatch']
+    selected_slot = request.form['selectedSlot']
+    if(batch=="Lecture"):
+        current_attendance = markedAttendance(date = selected_day.date(), batch = 'L', slot = selected_slot)
+        print(selected_day.date())
+        existing = markedAttendance.query.filter_by(date=selected_day.date(), batch = 'L', slot = selected_slot).first()
+    else:
+        current_attendance = markedAttendance(date = selected_day.date(), batch = selected_batch, slot = selected_slot)
+        print(selected_day.date())
+        existing = markedAttendance.query.filter_by(date=selected_day.date(), batch = selected_batch, slot = selected_slot).first()
+    if not existing:
+        db.session.add(current_attendance)
+        db.session.commit()
+        known_face_encodings = joblib.load('known_face_encodings.joblib')
+        try:
+            # records_to_delete = AttendanceRecord.query.all()
+
+            # # Delete each record
+            # for record in records_to_delete:
+            #     db.session.delete(record)
+
+            # # Commit the changes to the database
+            # db.session.commit()
+            known_face_names = joblib.load('known_face_names.joblib')
+        except (Exception) as e:
+            print(f"Exception!: {e}")
+            known_face_names=[]
+        if 'images' in request.files:
+            uploaded_images = request.files.getlist('images')
+
+            for uploaded_image in uploaded_images:
+                # Read the image from BytesIO
+                image_data = uploaded_image.read()
+                image = Image.open(BytesIO(image_data))
+                print("Image received")
+                np_image = np.array(image)
+
+                # Find all face locations in the image using the 'hog' model
+                face_locations = face_recognition.face_locations(np_image)
+                face_encodings = face_recognition.face_encodings(np_image, face_locations)
+                # Set a threshold for face recognition
+                threshold = 0.5
+                # Loop through each face found in the image
+                for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
+                    # Calculate distances between the current face and all known faces
+                    distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+
+                    # Find the index with the smallest distance
+                    min_distance_index = distances.argmin()
+
+                    # Use the smallest distance to determine if it's a match
+                    if distances[min_distance_index] < threshold:
+                        print( distances[min_distance_index])
+                        roll_no = known_face_names[min_distance_index]
+                        student = Student.query.filter_by(roll_no=roll_no).first()
+
+                        if student:
+                            print(f"Name: {student.name}, Enrollment No: {student.enrollment_no}, Confidence: {1 - distances[min_distance_index]}")
+                            existing_record = AttendanceRecord.query.filter_by(date=datetime.now().date(), roll_no=roll_no).first()
+
+                            if not existing_record:
+                                # If record doesn't exist, add a new record
+                                new_attendance_record = AttendanceRecord(date=selected_day.date(), batch = selected_batch, slot = selected_slot,roll_no=roll_no, name=student.name,enrollment_no=student.enrollment_no, present='y')
+                                db.session.add(new_attendance_record)
+                                db.session.commit()
+                                print("New attendance record added.")
+                            else:
+                                print("Attendance record already exists.")
+                        else: 
+                            print("Student not found in the database.")
+                        print("Found: " + roll_no)
+                    else:
+                        roll_no = "Unknown"
+
+                    # Draw a rectangle around the face and display the name (optional)
+                #     cv2.rectangle(np_image, (left, top), (right, bottom), (0, 255, 0), 2)
+                #     cv2.putText(np_image, roll_no, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+
+                # # Display the image with recognized faces (optional)
+                # cv2.imshow('Face Recognition', np_image)
+                # cv2.waitKey(0)
+                # cv2.destroyAllWindows()
+    else:
+        print('Attendance already marked for the lecture!')
+        return 'AlreadyMarked'
+        #if record already exists
+    return 'Success'
+    
+@app.route("/fetchAttendance")
+@login_required
+def fetchAttendance():
+    return render_template('fetchAttendance.html')
+
+@app.route("/fetch_marked_attendance",methods = ['POST'])
+@login_required
+def handle_fetch_marked_attendance():
+    try:   
+        selected_day_str = request.form['selectedDay']
+        selected_day = datetime.strptime(selected_day_str, "%a %b %d %Y %H:%M:%S GMT%z (%Z)")  
+        print(selected_day.date())
+        attendance_records = markedAttendance.query.filter_by(date=selected_day.date()).with_entities(markedAttendance.batch, markedAttendance.slot).all()
+        unique_records = set((record.batch, record.slot) for record in attendance_records)
+        print(unique_records)
+        attendance_data = []
+        for record in unique_records:
+            attendance_data.append({
+                'batch': record[0],
+                'slot': record[1],
+            })
+            print(attendance_data)
+        # result = AttendanceRecord.query.with_entities(AttendanceRecord.date, AttendanceRecord.subject, AttendanceRecord.batch).first()
+    except Exception as e:
+        return jsonify({'error': 'An error occurred while fetching attendance data'})
+        return []
+    return jsonify({'slots_batches': attendance_data})
 
 if __name__ == "__main__":
     app.run(debug=True)
