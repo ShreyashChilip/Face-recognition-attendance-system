@@ -1,4 +1,7 @@
 {% extends 'base.html' %}
+{% block head %}
+<link rel="stylesheet" href="https://cdn.metroui.org.ua/current/metro.css">
+{% endblock head %}
 {% block title %}
 Upload Images
 {% endblock title %}
@@ -19,7 +22,7 @@ active
         </select>
         <div class="form-group">
           <p>Select the date for which to mark attendance: </p><input type="date" id="selectDay" name="selectedDay" onchange="dayChange()" />
-          <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
+          <div id="errorMessage" class="alert alert-danger" style="display: none;"></div><hr>
         <div class="input-group mb-3">
           <select class="custom-select" id="selectLectures">
             <option>Select</option>
@@ -31,7 +34,7 @@ active
       <div class="container my-3">
         <h4>Upload Image</h4>
         <div class="form-group">
-            <input type="file" id="fileInput" accept="image/*" multiple>
+          <input type="file" data-role="file" data-mode="drop" id="fileInput" accept="image/*" multiple>
             <input type="button" onclick="uploadImages()" value="Upload Images"/>
       <input type="button" id="showAttendanceBtn" disabled class="btn btn-primary" style="margin: 20px;" value="Show Attendance" onclick="showAttendance()">
       <table class="table">
@@ -49,6 +52,7 @@ active
   </form>
 <script>
 </script>
+<script src="https://cdn.metroui.org.ua/current/metro.js"></script>
 <!-- jQuery first -->
 <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>

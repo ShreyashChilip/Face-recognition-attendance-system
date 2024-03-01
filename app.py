@@ -133,22 +133,8 @@ def to_addStudent():
 
 @app.route('/markattendance')
 def to_markAttendance():
-    try:
-        records_to_delete = AttendanceRecord.query.all()
-
-        # Delete each record
-        for record in records_to_delete:
-            db.session.delete(record)
-
-        # Commit the changes to the database
-        db.session.commit()
-
-        # Query all students from the Student model
-        students = Student.query.all()
-    except Exception as e:
-        print(f"Error fetching student data: {e}")
-        return []
-    return render_template('markAttendance.html',students=students)
+   
+    return render_template('markAttendance.html')
 
 def recognize():
     size = 4
@@ -334,6 +320,7 @@ def recognize_face(image,confidence_threshold=0.6):
 def handle_load_lectures(data):
     print("Here")
     selected_day = data['selectedDay']
+    print(selected_day)
     selected_batch = data['selectedBatch']
     print(selected_batch)
     if(selected_batch=="Lecture"):
@@ -343,13 +330,24 @@ def handle_load_lectures(data):
             print("Here i Am")
             # Iterate through each attribute of the record
             for attr, value in vars(slots_data).items():
-                # Check if the attribute is 'slot' and the value contains '[PR]'
-                if '[PR]' in value:
+                value_str = str(value)
+                if '[PR]' in value_str:
                     # If it contains '[PR]', replace the value with an empty string
-                    setattr(slots_data, attr, value.replace(value, '-'))
+                    setattr(slots_data, attr, value_str.replace(value_str, '-'))
     else:    
         # Use SQLAlchemy to query the database
         slots_data = TimeTable.query.filter_by(batch=selected_batch, day=selected_day).first()
+        if slots_data:
+            print("Here i Am")
+            # Iterate through each attribute of the record
+            for attr_name in slots_data.__table__.columns.keys():
+                # Get the value of the attribute
+                value = getattr(slots_data, attr_name)
+                # Convert the value to a string
+                value_str = str(value)
+                if '[PR]' not in value_str:
+                    # If it doesn't contain '[PR]', replace the value with '-'
+                    setattr(slots_data, attr_name, '-')
     # Convert the result to a dictionary for sending over Socket.IO
     slots_data_dict = {
         'slot1': slots_data.slot1,
@@ -370,10 +368,13 @@ def showAttendance():
     try:   
         selected_day_str = request.form['selectedDay']
         selected_day = datetime.strptime(selected_day_str, "%a %b %d %Y %H:%M:%S GMT%z (%Z)")  
+        dte = selected_day.strftime("%A, %d %B %Y")
         selected_batch = request.form['selectedBatch']
+        if(selected_batch == "Lecture"):
+            selected_batch='L'
         selected_slot = request.form['selectedSlot']
         print(selected_day.date(),selected_batch,selected_slot)
-        attendanceRecord = AttendanceRecord.query.filter_by(date=selected_day.date(), batch=selected_batch, slot=selected_slot).all()
+        attendanceRecord = AttendanceRecord.query.filter_by(date=selected_day.date(), batch=selected_batch, slot=selected_slot).order_by(AttendanceRecord.roll_no).all()
         attendance_data = []
         for record in attendanceRecord:
             attendance_data.append({
@@ -383,12 +384,22 @@ def showAttendance():
                 'present': record.present
                 # Add more fields as needed
             })
-            print(attendance_data)
+        count = len(attendance_data)
+        print(attendance_data)
+        if(selected_batch == "L"):
+            selected_batch="Lecture"
+        elif(selected_batch=="1"):
+            selected_batch="IF1"
+        elif(selected_batch=="2"):
+            selected_batch="IF2"
+        elif(selected_batch=="3"):
+            selected_batch="IF3"
         # result = AttendanceRecord.query.with_entities(AttendanceRecord.date, AttendanceRecord.subject, AttendanceRecord.batch).first()
     except Exception as e:
         return jsonify({'error': 'An error occurred while fetching attendance data'})
         return []
-    return jsonify({'attendance': attendance_data})
+    print(dte)
+    return jsonify({'attendance': attendance_data,'count': count, 'selected_day':dte,'selected_batch':selected_batch,'selected_slot':selected_slot})
 
 @app.route("/uploadImages",methods = ['GET','POST'])
 def toUploadImages():
@@ -401,7 +412,8 @@ def processImages():
     selected_day = datetime.strptime(selected_day_str, "%a %b %d %Y %H:%M:%S GMT%z (%Z)")  
     selected_batch = request.form['selectedBatch']
     selected_slot = request.form['selectedSlot']
-    if(batch=="Lecture"):
+    if(selected_batch=="Lecture"):
+        selected_batch = "L"
         current_attendance = markedAttendance(date = selected_day.date(), batch = 'L', slot = selected_slot)
         print(selected_day.date())
         existing = markedAttendance.query.filter_by(date=selected_day.date(), batch = 'L', slot = selected_slot).first()
@@ -457,7 +469,7 @@ def processImages():
 
                         if student:
                             print(f"Name: {student.name}, Enrollment No: {student.enrollment_no}, Confidence: {1 - distances[min_distance_index]}")
-                            existing_record = AttendanceRecord.query.filter_by(date=datetime.now().date(), roll_no=roll_no).first()
+                            existing_record = AttendanceRecord.query.filter_by(date=datetime.now().date(), roll_no=roll_no,batch=selected_batch,slot=selected_slot).first()
 
                             if not existing_record:
                                 # If record doesn't exist, add a new record
