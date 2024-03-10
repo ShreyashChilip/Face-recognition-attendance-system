@@ -11,7 +11,7 @@
 <style>
 
 </style>
-  <form method="POST" action="/showAttendance">
+  <form method="POST">
     <div class="container my-3">
       <h4>Mark Attendance</h4>
       <div class="form-group">
@@ -43,36 +43,27 @@
         <label class="btn btn-outline-danger" for="vbtn-radio2">Stop Camera</label>
         <input type="button" class="btn btn-info" onclick="switchCamera()" value="Switch Camera">
       </div>
-      <input type="button" class="btn btn-info" onclick="" value="Capture">
-      <input type="button" class="btn btn-info" onclick="" value="Reset">
-      <input type="submit" class="btn btn-primary" style="margin: 20px;" value="Show Attendance">
-      <table class="table">
+      <input type="button" class="btn btn-primary" style="margin: 20px;" value="Show Attendance" onclick="showAttendance()">
+      <table class="table" id="allTable">
         <thead>
           <tr>
-            <th scope="col">#</th>
             <th scope="col">Roll No.</th>
             <th scope="col">Student Name</th>
             <th scope="col">Enrollment No.</th>
             <th scope="col">P/A</th>
           </tr>
         </thead>
-        <tbody id="studentsRecord">
-          {% for student in students %}
-            <tr>
-              <th scope="row">{{ loop.index }}</th>
-              <td>{{ student.roll_no }}</td>
-              <td>{{ student.name }}</td>
-              <td>{{ student.enrollment_no }}</td>
-              <!-- Add more columns if needed -->
-              <td><input type="checkbox" name="student_checkbox" id ="{{ student.id }}" value="{{ student.id }}"></td>
-            </tr>
-          {% endfor %}
+        <tbody id="attendance_table_body">
         </tbody>
       </table>
+      <input type="button" id="exportBtn" onclick="exportToXLSX()" disabled value="Export to XLSX"/>
   </form>
   
-
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.4/xlsx.full.min.js"></script>
   <script>
+
+    let xhr;
+    let intervalId;
     let videoStream;
     let currentCamera = 'environment'; // 'environment' for rear, 'user' for front
     function check(r) {
@@ -94,7 +85,7 @@
       try {
         videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentCamera } });
         document.getElementById('video').srcObject = videoStream;
-        setInterval(captureFrame, 1000);
+        intervalId = setInterval(captureFrame, 10);
       } catch (error) {
         console.error('Error accessing camera:', error);
       }
@@ -103,14 +94,24 @@
     const context = canvas.getContext('2d');
   // Capture frames
     function captureFrame() {
+      canvas.width = videoStream.getVideoTracks()[0].getSettings().width;
+      canvas.height = videoStream.getVideoTracks()[0].getSettings().height;
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       canvas.toBlob(sendDataToFlask, 'image/png'); // Convert to Blob
     }
 
     function sendDataToFlask(blobData) {
-      var xhr = new XMLHttpRequest();
+      xhr = new XMLHttpRequest();
       xhr.open('POST', '/process_video_frames', true);
-      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      var formData = new FormData();
+      var batchData = document.getElementById('selectBatch').value;
+      var slotData = document.getElementById('selectLectures').value;
+      let selectDay = document.getElementById('selectDay');
+        var date = new Date(selectDay.value)
+        formData.append('selectedDay', date);
+  formData.append('blobData', blobData); // assuming blobData is the blob you want to send
+  formData.append('batchData', batchData);
+  formData.append('slotData', slotData);
       xhr.onload = function () {
         if (xhr.status === 200) {
           console.log('Data sent successfully');
@@ -125,15 +126,15 @@
       xhr.onerror = function () {
         console.error('Network error while sending data to Flask');
       };
-      xhr.send(blobData);
+      xhr.send(formData);
     }
     function stopCamera() {
       if (videoStream) {
         videoStream.getTracks().forEach(track => track.stop());
         document.getElementById('video').srcObject = null;
-        
-              
-          
+        xhr.abort();
+        console.log("Interval id is: "+intervalId);
+        clearInterval(intervalId);
       }
     }
 
@@ -225,7 +226,102 @@ function updateSelectOptions(slotsData) {
 
       xhratt.send();
     }
+function showAttendance()
+{
+  const formData = new FormData();
+  var batch = document.getElementById('selectBatch').value;
+  var slot = document.getElementById('selectLectures').value;
+  console.log(batch,slot);
+  let selectDay = document.getElementById('selectDay');
+        var date = new Date(selectDay.value)
+        formData.append('selectedDay', date);
+        formData.append('selectedBatch', batch);
+        formData.append('selectedSlot', slot);
+        // Send the FormData to the server (you need to implement the server-side code)
+        fetch('/showAttendance', {
+            method: 'POST',
+            body: formData,
+        })
+        .then(response => {
+          return response.json(); // Convert response body to text
+        })
+        .then(data => {
+          var tableBody = document.getElementById('attendance_table_body');
+        tableBody.innerHTML = ''; // Clear existing data
+        if (data.attendance) { // Check if attendance data is present
+          var count = data.count;
+        var selected_batch = data.selected_batch;
+        var selected_day = data.selected_day;
+        var selected_slot = data.selected_slot;
+        var details = "Attendance for: "+selected_day+" "+selected_batch+" "+selected_slot+" Total Present: "+count;
+        console.log(details);
 
+        data.attendance.forEach(function(record) {
+            var row = document.createElement('tr');
+            console.log(record);
+            row.innerHTML = '<td>' + record.roll_no + '</td>' +
+                            '<td>' + record.name + '</td>' +
+                            '<td>' + record.enrollment_no + '</td>'+
+                            '<td>' + record.present + '</td>';
+            tableBody.appendChild(row);
+        });
+        const exportBtn = document.getElementById('exportBtn');
+        exportBtn.disabled = false;
+    } else {
+      // exportBtn.disabled=true;
+        console.error('Attendance data is missing or empty');
+    }
+    })
+        .catch(error => console.error('Error ', error));
+    } 
+
+    function exportToXLSX() {
+      var fname = document.getElementById('selectLectures').options[document.getElementById('selectLectures').selectedIndex].value;
+      var d = document.getElementById('selectDay');
+      var date = new Date(d.value);
+    // Get the table element by its ID
+    var table = document.getElementById('allTable');
+    
+    // Convert the table data to a worksheet
+    var ws = XLSX.utils.table_to_sheet(table);
+
+    // Create a new workbook
+    var wb = XLSX.utils.book_new();
+
+    // Add the worksheet to the workbook
+    XLSX.utils.book_append_sheet(wb, ws, "Attendance");
+
+    // Convert the workbook to a binary XLSX file
+    var wbout = XLSX.write(wb, {bookType:'xlsx', type:'binary'});
+
+    // Convert the binary XLSX data to a Blob
+    var blob = new Blob([s2ab(wbout)], {type:"application/octet-stream"});
+
+    // Create a download link for the Blob
+    var url = URL.createObjectURL(blob);
+
+    // Trigger a download of the XLSX file
+    var link = document.createElement("a");
+    link.href = url;
+    var fullDate = date.getDate().toString()+"."+(date.getMonth()+1).toString()+"."+date.getYear().toString();
+    link.download = fullDate+"-"+fname+'.xlsx';
+    document.body.appendChild(link);
+    link.click();
+
+    // Clean up
+    setTimeout(function() {
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }, 0);
+}
+
+// Utility function to convert a string to an ArrayBuffer
+function s2ab(s) {
+    var buf = new ArrayBuffer(s.length);
+    var view = new Uint8Array(buf);
+    for (var i=0; i<s.length; i++) view[i] = s.charCodeAt(i) & 0xFF;
+    return buf;
+}
   </script>
   <!-- jQuery first -->
   

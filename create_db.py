@@ -22,7 +22,7 @@ with app.app_context():
 
             # Insert student data
             
-            df = pd.read_excel('g20_data.xlsx')
+            df = pd.read_excel('student_data.xlsx')
 
     # Iterate through rows and add data to the 'students' table
             for index, row in df.iterrows():

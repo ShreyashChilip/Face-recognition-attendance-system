@@ -1,3 +1,4 @@
+from flask_socketio import SocketIO
 from flask import Flask, render_template, redirect, url_for, session, request, flash, get_flashed_messages
 from flask import Response,jsonify
 from datetime import datetime
@@ -10,7 +11,13 @@ from flask_bcrypt import Bcrypt
 import cv2, sys, numpy as np, json, os, base64, joblib, face_recognition
 from io import BytesIO
 from PIL import Image,UnidentifiedImageError
-from flask_socketio import SocketIO
+import os, io, base64, logging
+from time import sleep
+haar_file = 'haarcascade_frontalface_default.xml'
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+import pandas as pd
+from werkzeug.utils import secure_filename 
+import subprocess
 
 haar_file = 'haarcascade_frontalface_default.xml'
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
@@ -131,6 +138,10 @@ def logout():
 def to_addStudent():
     return render_template('addStudent.html')
 
+@app.route('/uploadStudentData')
+def to_uploadStudentData():
+    return render_template('uploadStudentData.html')
+
 @app.route('/markattendance')
 def to_markAttendance():
    
@@ -232,8 +243,14 @@ def generate_frames():
 @app.route('/process_video_frames', methods=['POST'])
 def process_video_frames():
     try:
-        image_data_bytes = request.data
-
+        image_file = request.files['blobData']
+        image_data_bytes = image_file.read()
+        # Access batch and slot data
+        batch_data = request.form['batchData']
+        slot_data = request.form['slotData']
+        date = request.form['selectedDay']
+        print(batch_data,slot_data)
+        print('data received successfully')
         # Convert bytes to numpy array
         nparr = np.frombuffer(image_data_bytes, np.uint8)
         # Decode numpy array into an image
@@ -245,7 +262,7 @@ def process_video_frames():
             image_pil = Image.fromarray(cv2.cvtColor(image_cv2, cv2.COLOR_BGR2RGB))
             # Continue with face recognition or other processing
             image_pil.save('image.jpeg')
-            recognize_face(process_image(image_pil))
+            recognize_face(image_pil,batch_data,slot_data,date)
             return 'Success'
         else:
             print("Error: Unable to decode the image.")
@@ -255,15 +272,15 @@ def process_video_frames():
         print(f"Unexpected error: {e}")
         return 'Unexpected error occurred.'
 
-def process_image(image):
-    # Resize the image to a smaller size (150x150) for faster face detection
-    image = image.resize((1280, 1024))
-    # Convert the image to RGB format
-    image = image.convert("RGB")
-    image.save('image1024.jpeg')
-    return image
+# def process_image(image):
+#     # Resize the image to a smaller size (150x150) for faster face detection
+#     image = image.resize((1280, 1024))
+#     # Convert the image to RGB format
+#     image = image.convert("RGB")
+#     image.save('image1024.jpeg')
+#     return image
 
-def recognize_face(image,confidence_threshold=0.6):
+def recognize_face(image,batch_data,slot_data,date,confidence_threshold=0.6):
     known_face_encodings = joblib.load('known_face_encodings.joblib')
     try:
         known_face_names = joblib.load('known_face_names.joblib')
@@ -271,11 +288,22 @@ def recognize_face(image,confidence_threshold=0.6):
         print(f"Exception!: {e}")
         known_face_names=[]
     image_np = np.array(image)
-
+    selected_day = datetime.strptime(date, "%a %b %d %Y %H:%M:%S GMT%z (%Z)")  
     # Find faces in the frame
     face_locations = face_recognition.face_locations(image_np)
     face_encodings = face_recognition.face_encodings(image_np, face_locations)
-
+    if(batch_data=="Lecture"):
+        batch_data = "L"
+        current_attendance = markedAttendance(date = selected_day.date(), batch = batch_data, slot = slot_data)
+        print(selected_day.date())
+        existing = markedAttendance.query.filter_by(date=selected_day.date(), batch = batch_data, slot = slot_data).first()
+    else:
+        current_attendance = markedAttendance(date = selected_day.date(), batch = batch_data, slot = slot_data)
+        print(selected_day.date())
+        existing = markedAttendance.query.filter_by(date=selected_day.date(), batch =batch_data, slot = slot_data).first()
+    if not existing:
+        db.session.add(current_attendance)
+        db.session.commit()
     if not face_encodings:
         print("No faces found in the image.")
         # return recognized_students
@@ -298,11 +326,11 @@ def recognize_face(image,confidence_threshold=0.6):
 
             if student:
                 print(f"Name: {student.name}, Enrollment No: {student.enrollment_no}, Confidence: {1 - min_distance}")
-                existing_record = AttendanceRecord.query.filter_by(date=datetime.now().date(), roll_no=roll_no).first()
+                existing_record = AttendanceRecord.query.filter_by(date=selected_day.date(),batch=batch_data,slot=slot_data, roll_no=roll_no, name=student.name,enrollment_no=student.enrollment_no, present='y').first()
 
                 if not existing_record:
                     # If record doesn't exist, add a new record
-                    new_attendance_record = AttendanceRecord(date=datetime.now().date(), roll_no=roll_no, name=student.name,enrollment_no=student.enrollment_no, present='y')
+                    new_attendance_record = AttendanceRecord(date=selected_day.date(),batch=batch_data,slot=slot_data, roll_no=roll_no, name=student.name,enrollment_no=student.enrollment_no, present='y')
                     db.session.add(new_attendance_record)
                     db.session.commit()
                     print("New attendance record added.")
@@ -398,7 +426,7 @@ def showAttendance():
     except Exception as e:
         return jsonify({'error': 'An error occurred while fetching attendance data'})
         return []
-    print(dte)
+    print(attendance_data,count,dte, selected_batch, selected_slot)
     return jsonify({'attendance': attendance_data,'count': count, 'selected_day':dte,'selected_batch':selected_batch,'selected_slot':selected_slot})
 
 @app.route("/uploadImages",methods = ['GET','POST'])
@@ -452,7 +480,7 @@ def processImages():
                 face_locations = face_recognition.face_locations(np_image)
                 face_encodings = face_recognition.face_encodings(np_image, face_locations)
                 # Set a threshold for face recognition
-                threshold = 0.5
+                threshold = 0.4
                 # Loop through each face found in the image
                 for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
                     # Calculate distances between the current face and all known faces
@@ -486,9 +514,10 @@ def processImages():
                         roll_no = "Unknown"
 
                     # Draw a rectangle around the face and display the name (optional)
-                #     cv2.rectangle(np_image, (left, top), (right, bottom), (0, 255, 0), 2)
-                #     cv2.putText(np_image, roll_no, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-
+                    cv2.rectangle(np_image, (left, top), (right, bottom), (0, 255, 0), 2)
+                    cv2.putText(np_image, roll_no, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                    image_pil = Image.fromarray(np_image)
+                    image_pil.save('image.jpeg')
 
                 # # Display the image with recognized faces (optional)
                 # cv2.imshow('Face Recognition', np_image)
@@ -527,6 +556,119 @@ def handle_fetch_marked_attendance():
         return jsonify({'error': 'An error occurred while fetching attendance data'})
         return []
     return jsonify({'slots_batches': attendance_data})
+
+@app.route('/add_student', methods=['POST','GET'])
+def add_student():
+
+    if request.method == 'POST':  # Form Submitted
+        logging.basicConfig(filename='image_upload_debug.log', level=logging.DEBUG)
+        logging.debug(request.files) 
+        # Extract student info 
+        student_info = request.form.get('studentInfo')
+
+        if student_info:
+            roll_no = student_info.split(' - ')[0]  
+        else:
+            flash("Please select a student from the autocomplete list.")
+            return redirect(url_for('add_student'))
+
+        # Image Handling (Handles both uploads and individually sent captured images) 
+        if 'image-0' in request.files:
+            print("found captured images")  # Handle a single captured image
+            for i in range(5):  # Assuming you expect a maximum of 5
+                key = f'image-{i}'  # Dynamic key for multiple captured images
+                if key in request.files: 
+                    image_file = request.files[key]
+                    image_bytes = image_file.read()
+
+                    try:
+                        # Convert Blob to Image
+                        nparr = np.frombuffer(image_bytes, np.uint8)  
+                        image_cv2 = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+                        if image_cv2 is not None and not np.all(image_cv2 == 0): 
+                            image_pil = Image.fromarray(cv2.cvtColor(image_cv2, cv2.COLOR_BGR2RGB))
+
+
+                            image_pil = process_image(image_pil)
+
+                            # Saving 
+                            filename = f'student_image_{roll_no}_{i}.jpg'  
+                            student_dir = os.path.join('training', str(roll_no))
+                            os.makedirs(student_dir, exist_ok=True)
+                            image_pil.save(os.path.join(student_dir, filename))  
+
+                        else:
+                            flash(f"Error processing captured image {i}: Unable to decode image.") 
+                    except Exception as e:
+                        flash(f"Error processing captured image {i}: {e}")
+
+            flash("Images saved successfully for existing student.")  
+            return redirect(url_for('add_student')) 
+
+        elif 'images' in request.files and request.files['images'].filename != '':
+            print("found uploaded image")  # Handle uploaded images (multiple at once)
+            images = request.files.getlist('images')
+            for image in images:
+                if allowed_file(image.filename):
+                    filename = secure_filename(image.filename)
+                    student_dir = os.path.join('training', str(roll_no))
+                    os.makedirs(student_dir, exist_ok=True)
+                    image.save(os.path.join(student_dir, filename))
+                else:
+                    flash(f"Invalid file format: {image.filename}") 
+
+        else:
+            flash("Please select images or capture a photo.")
+            return redirect(url_for('add_student'))
+
+    # GET Request Code (Displays the form)
+    return render_template('addStudent.html') 
+
+@app.route('/upload_student_data', methods=['POST'])
+def upload_student_data():
+  if 'studentData' in request.files:
+    student_data_file = request.files['studentData']
+    df = pd.read_excel(student_data_file.stream)
+
+    # Iterate through rows and add data to the 'students' table
+    for index, row in df.iterrows():
+      student = Student(
+        roll_no=row['roll_no'],
+        name=row['name'],
+        enrollment_no=row['enrollment_no']
+      )
+      db.session.add(student)
+    db.session.commit()
+
+@app.route('/autocomplete')
+def autocomplete():
+    search_term = request.args.get('q')
+    results = Student.query.filter(
+        db.or_(
+            Student.roll_no.like(f'%{search_term}%'),
+            Student.name.like(f'%{search_term}%'),
+            Student.enrollment_no.like(f'%{search_term}%')
+        )
+    ).all()
+
+    data = [{
+        'roll_no': student.roll_no,
+        'name': student.name,
+        'enrollment_no': student.enrollment_no
+    } for student in results]
+
+    return jsonify(data)
+
+@app.route('/train_model')
+def train_model():
+    try:
+        print("starting training...")
+        subprocess.Popen(['python3', 'train.py'])  # Starts train.py as a separate process
+        return 'Training Started'
+    except Exception as e:
+        return f'Error starting training: {e}'
+    
 
 if __name__ == "__main__":
     app.run(debug=True)
